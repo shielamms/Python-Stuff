@@ -1,5 +1,6 @@
 import json
 
+
 class Route53Request:
     def __init__(self, action, domainName, zoneType='public', recordSetName=None, recordSetValue=None,
                  recordSetType=None, ttl=300):
@@ -23,10 +24,10 @@ class Route53Request:
         self.recordSetName = recordSetName
 
     def set_recordSetValue(self, recordSetValue):
-        self.set_recordSetValue = set_recordSetValue
+        self.recordSetValue = recordSetValue
 
     def set_recordSetType(self, recordSetType):
-        self.set_recordSetValue = set_recordSetValue
+        self.recordSetType = recordSetType
 
     def is_valid_action(self):
         if self.action not in ['UPSERT', 'DELETE']:
@@ -34,13 +35,17 @@ class Route53Request:
         return True
 
     def is_valid_record_type(self):
-        if self.recordSetType not in ['MX', 'PTR', 'A', 'CNAME', 'SRV', 'TXT', 'AAAA']:
+        if self.recordSetType not in ['MX', 'PTR', 'A', 'CNAME', 'SRV', 'TXT', 'NS', 'AAAA']:
             return False
         return True
 
     def split_multiple_record_values(self):
-        record_set_values = recordSetValue.replace(' ', '').split(',')
-        self.recordSetValue = record_set_values
+        record_set_values = self.recordSetValue.replace(' ', '').split(',')
+
+        if len(record_set_values) > 1:
+            self.recordSetValue = record_set_values
+        else:
+            self.recordSetValue = record_set_values[0]
 
     def add_quotes_to_txt_values(self):
         new_record_set_values = []
@@ -57,8 +62,11 @@ class Route53Request:
                 'Name': self.recordSetName,
                 'Type': self.recordSetType,
                 'TTL': self.ttl,
-                'ResourceRecords': self.recordSetValue
-
+                'ResourceRecords': [
+                    {
+                        'Value': self.recordSetValue
+                    }
+                ]
             }
         }
 
