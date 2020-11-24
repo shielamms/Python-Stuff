@@ -1,6 +1,3 @@
-import json
-
-
 class Route53Request:
     def __init__(self, action, domainName, zoneType='public', recordSetName=None, recordSetValue=None,
                  recordSetType=None, ttl=300):
@@ -11,8 +8,6 @@ class Route53Request:
         self.recordSetValue = recordSetValue
         self.recordSetType = recordSetType
         self.ttl = ttl
-
-        self.split_multiple_record_values()
 
         if self.recordSetType == 'TXT':
             self.add_quotes_to_txt_values()
@@ -39,14 +34,6 @@ class Route53Request:
             return False
         return True
 
-    def split_multiple_record_values(self):
-        record_set_values = self.recordSetValue.replace(' ', '').split(',')
-
-        if len(record_set_values) > 1:
-            self.recordSetValue = record_set_values
-        else:
-            self.recordSetValue = record_set_values[0]
-
     def add_quotes_to_txt_values(self):
         new_record_set_values = []
 
@@ -56,6 +43,10 @@ class Route53Request:
         self.recordSetValue = new_record_set_values
 
     def generate_change_recordSet_json(self):
+        """
+            Generates the JSON containing the request details required by the
+            change_resource_record_sets() API
+        """
         request_json = {
             'Action': self.action,
             'ResourceRecordSet': {

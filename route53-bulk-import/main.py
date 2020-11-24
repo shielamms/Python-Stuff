@@ -16,9 +16,43 @@ def read_csv_input(bucket, key):
         csv_data_dict = csv.DictReader(codecs.iterdecode(csv_data, 'utf-8-sig'))
 
         return csv_data_dict
-    except:
+    except Exception as e:
+        print(e)
         raise RequestException(message='Failed to read CSV file from S3', error_data=key)
 
+def group_data_by_domain_name(csv_data):
+    """
+        Reads each row from the input CSV and groups them by domain name.
+
+        Parameters:
+        - csv_data: DictReader - CSV data where each row is one record change request
+
+        Returns:
+        - changes_dict: dict - key-value pairs of domain names and list of Route53Requests
+    """
+    changes_dict = {}
+
+    for i, row in enumerate(csv_data):
+        request_info = Route53Request(action=row['action'],
+                                      domainName=row['domain_name'],
+                                      recordSetName=row['record_name'],
+                                      recordSetValue=row['value'],
+                                      recordSetType=row['record_type']
+                                      )
+
+        if request_info.is_valid_action() == False:
+            raise RequestException(message='Invalid request action', index=i + 1, error_data=request_info.action)
+
+        if request_info.is_valid_record_type() == False:
+            raise RequestException(message='Record type is not recognised', index=i + 1,
+                                   error_data=request_info.recordSetType)
+
+        if request_info.domainName not in changes_dict.keys():
+            changes_dict[request_info.domainName] = [request_info]
+        else:
+            changes_dict[request_info.domainName].append(request_info)
+
+    return changes_dict
 
 def get_hosted_zone_id(domain_name, zone_type):
     response_zones = None
@@ -31,7 +65,8 @@ def get_hosted_zone_id(domain_name, zone_type):
         )
 
         time.sleep(0.5)
-    except:
+    except Exception as e:
+        print(e)
         raise RequestException(message='Could not perform list operation from Route 53', error_data=domain_name)
 
     for zone in response_zones['HostedZones']:
@@ -40,20 +75,31 @@ def get_hosted_zone_id(domain_name, zone_type):
 
         if domain_name + '.' == zone_name and zone_type == response_zone_type:
             if zone_id is not None:
-                raise RequestException(message='Multiple hosted zones with the same name were found',
-                                       error_data=domain_name)
+                raise RequestException(
+                    message='Multiple hosted zones with the same name {0} were found'.format(domain_name))
 
             zone_id = zone['Id'].partition("hostedzone/")[2]
 
-    if zone_id is None and error is None:
+    if zone_id is None:
         raise RequestException('The hosted zone {0} does not exist'.format(domain_name))
 
     return zone_id
 
 
 def commit_changes(zone_id, action_requests):
+    """
+        Pushes all DNS record changes associated to a domain name (represented by zone_id) by bulk
+        through the ChangeBatch parameter of change_resource_record_sets() API
+
+        Parameters:
+        - zone_id: str - the zone id of the domain name in which the DNS record changes will be made
+        - action_requests: list[Route53Request] - a list of objects of type Route53Request. Each Route53Request is
+                                                    one action to perform on a DNS record of the specified domain.
+
+        Return:
+        - response_msg: str - a unique identifier returned by a successful Route 53 API call
+    """
     action_json = []
-    msg = None
 
     for action_request in action_requests:
         action_json.append(action_request.generate_change_recordSet_json())
@@ -68,67 +114,60 @@ def commit_changes(zone_id, action_requests):
 
         time.sleep(1)
 
-        msg = response['ChangeInfo']['Id']
+        response_msg = response['ChangeInfo']['Id']
+
+        return response_msg
 
     except Exception as e:
+        print(e)
         raise RequestException(message="Could not commit changes to Route 53. Invalid JSON request", error_data=zone_id)
-
-    return msg
 
 
 def process_changes(changes_dict):
+    """
+        Iterates through each unique domain name from the input file and
+        processes all associated requests by bulk by calling commit_changes()
+        to push the request details to Route 53.
+
+        Parameters:
+        - changes_dict: dict - a dictionary of unique domain names as keys and
+                               a list of all requests associated to the domain
+                               name as the values
+
+        Returns:
+        - response_msgs: list - a list of successful Route 53 API response
+                                reference numbers
+    """
+    response_msgs = []
+
     for domain_name in changes_dict.keys():
         action_requests = changes_dict[domain_name]
 
         zone_id = get_hosted_zone_id(domain_name, action_requests[0].zoneType)
 
-        msg = commit_changes(zone_id, action_requests)
+        response_msgs.append(commit_changes(zone_id, action_requests))
 
-    return msg
+    return response_msgs
 
 
 def handler(event, context):
+    """
+        Function entrypoint - set Lambda function runtime settings to Python 3.7
+        and main.handler as the handler.
+    """
     try:
-        data_file = event['file_name']
-
-        bucket = data_file['bucket']['name']
-        key = data_file['object']['key']
+        bucket = event['file_name']['bucket']['name']
+        key = event['file_name']['object']['key']
 
         csv_data = read_csv_input(bucket, key)
-
-        changes_dict = {}
-        error = None
-
-        for i, row in enumerate(csv_data):
-            request_info = Route53Request(row['action'],
-                                          domainName=row['domain_name'],
-                                          recordSetName=row['record_name'],
-                                          recordSetValue=row['value'],
-                                          recordSetType=row['record_type']
-                                          )
-
-            if request_info.is_valid_action() == False:
-                raise RequestException(message='Invalid request action', index=i + 1, error_data=request_info.action)
-
-            if request_info.is_valid_record_type() == False:
-                raise RequestException(message='Record type is not recognised', index=i + 1,
-                                       error_data=request_info.recordSetType)
-
-            if request_info.domainName not in changes_dict.keys():
-                changes_dict[request_info.domainName] = [request_info]
-            else:
-                changes_dict[request_info.domainName].append(request_info)
-
-        # Process Changes
-        msg = process_changes(changes_dict)
+        changes_dict = group_data_by_domain_name(csv_data)
+        response_msgs = process_changes(changes_dict)
 
         APIresponse = {
             "number": event['number'],
             "state": "Successfully committed changes to Route53",
-            "message": msg,
+            "message": ','.join(response_msgs),
         }
-
-        return APIresponse
 
     except RequestException as req_exc:
         print(req_exc)
@@ -138,6 +177,5 @@ def handler(event, context):
             "state": "Error",
             "message": req_exc.get_msg_data()
         }
-
+    finally:
         return APIresponse
-
