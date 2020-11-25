@@ -10,6 +10,16 @@ s3 = boto3.client("s3")
 
 
 def read_csv_input(bucket, key):
+    """
+        Reads a csv file from the given S3 bucket and key and returns a DictReader object
+
+        Parameters:
+        - bucket: str - the name of the S3 bucket from which to read the csv file
+        - key: str - the key name or filename of the csv file to read
+
+        Returns:
+        - DictReader - the csv file reader object that maps the data into a dictionary
+    """
     try:
         csv_file = s3.get_object(Bucket=bucket, Key=key)
         csv_data = csv_file['Body'].read().split(b'\n')
@@ -28,7 +38,7 @@ def group_data_by_domain_name(csv_data):
         - csv_data: DictReader - CSV data where each row is one record change request
 
         Returns:
-        - changes_dict: dict - key-value pairs of domain names and list of Route53Requests
+        - dict - key-value pairs of domain names and list of Route53Requests
     """
     changes_dict = {}
 
@@ -55,6 +65,17 @@ def group_data_by_domain_name(csv_data):
     return changes_dict
 
 def get_hosted_zone_id(domain_name, zone_type):
+    """
+        Retrieves the hosted zone ID of a given domain name from Route 53
+
+        Parameters:
+        - domain_name: str - the domain name to look for in Route 53
+        - zone_type: str - public or private; indicates whether the domain name is accessible via the internet (public)
+                           or only within a VPC (private)
+
+        Returns:
+        - str - the zone ID of the domain name in Route 53
+    """
     response_zones = None
     zone_id = None
 

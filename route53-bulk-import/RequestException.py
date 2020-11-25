@@ -15,7 +15,7 @@ class RequestException(Exception):
         if self.error_data is None:
             return self.message
         else:
-            return "{0} : on {1}".format(self.message, self.error_data)
+            return "{0} : on {1}, index: {2}".format(self.message, self.error_data, self.index)
 
     def __str__(self):
         return self.message
