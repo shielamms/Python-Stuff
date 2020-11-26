@@ -85,7 +85,6 @@ def get_hosted_zone_id(domain_name, zone_type):
             MaxItems="2"
         )
 
-        time.sleep(0.5)
     except Exception as e:
         print(e)
         raise RequestException(message='Could not perform list operation from Route 53', error_data=domain_name)
@@ -107,13 +106,14 @@ def get_hosted_zone_id(domain_name, zone_type):
     return zone_id
 
 
-def commit_changes(zone_id, action_requests):
+def commit_changes(domain_name, zone_id, action_requests):
     """
         Pushes all DNS record changes associated to a domain name (represented by zone_id) by bulk
         through the ChangeBatch parameter of change_resource_record_sets() API
 
         Parameters:
-        - zone_id: str - the zone id of the domain name in which the DNS record changes will be made
+        - domain_name: str - the name of the hosted zone in which the DNS record changes will be made
+        - zone_id: str - the zone id of the hosted zone in which the DNS record changes will be made
         - action_requests: list[Route53Request] - a list of objects of type Route53Request. Each Route53Request is
                                                     one action to perform on a DNS record of the specified domain.
 
@@ -141,7 +141,7 @@ def commit_changes(zone_id, action_requests):
 
     except Exception as e:
         print(e)
-        raise RequestException(message="Could not commit changes to Route 53. Invalid JSON request", error_data=zone_id)
+        raise RequestException(message="Failed to commit changes to Route 53", error_data=domain_name)
 
 
 def process_changes(changes_dict):
@@ -166,7 +166,7 @@ def process_changes(changes_dict):
 
         zone_id = get_hosted_zone_id(domain_name, action_requests[0].zoneType)
 
-        response_msgs.append(commit_changes(zone_id, action_requests))
+        response_msgs.append(commit_changes(domain_name, zone_id, action_requests))
 
     return response_msgs
 
